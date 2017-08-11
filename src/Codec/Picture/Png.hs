@@ -27,6 +27,7 @@ module Codec.Picture.Png( -- * High level functions
                         , encodeDynamicPng
                         , encodePalettedPng
                         , encodePalettedPngWithMetadata
+                        , unsafeEncodePalettedPng
                         , writeDynamicPng
                         ) where
 
@@ -160,8 +161,8 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) str initialIdx = do
                                              valB <- previousLine `M.unsafeRead` idx
                                              let a' = fromIntegral valA
                                                  b' = fromIntegral valB
-                                                 average = fromIntegral ((a' + b') `div` (2 :: Word16)) 
-                                                 writeVal = byte + average 
+                                                 average = fromIntegral ((a' + b') `div` (2 :: Word16))
+                                                 writeVal = byte + average
                                              (thisLine `M.unsafeWrite` idx) writeVal
                                              inner (idx + 1) $ readIdx + 1
 
@@ -186,7 +187,7 @@ pngFiltering unpacker beginZeroes (imgWidth, imgHeight) str initialIdx = do
                             pa = abs $ p - a'
                             pb = abs $ p - b'
                             pc = abs $ p - c'
-                  
+
 -- | Directly stolen from the definition in the standard (on W3C page),
 -- pixel predictor.
 
@@ -208,7 +209,7 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
         pixelToRead = min (imgWidth - 1) $ (maxIdx - beginIdx) `div` sampleCount
         inner pixelIndex | pixelIndex > pixelToRead = return ()
                          | otherwise = do
-            let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft 
+            let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft
                 destSampleIndex = destPixelIndex * sampleCount
                 srcPixelIndex = pixelIndex * sampleCount + beginIdx
                 perPixel sample | sample >= sampleCount = return ()
@@ -220,7 +221,7 @@ byteUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIma
             perPixel 0
             inner (pixelIndex + 1)
     inner 0
-             
+
 
 -- | Unpack lines where bit depth is 1
 bitUnpacker :: Int -> MutableImage s Word8 -> StrideInfo -> BeginOffset -> LineUnpacker s
@@ -235,7 +236,7 @@ bitUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData = ar
         (pixelToRead, lineRest) = (lineWidth + subPadd) `divMod` 8
     forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line `M.unsafeRead` (pixelIndex  + beginIdx)
-        let writeIdx n = lineIndex + (pixelIndex * 8 + n) * strideWidth + beginLeft 
+        let writeIdx n = lineIndex + (pixelIndex * 8 + n) * strideWidth + beginLeft
         forM_ [0 .. 7] $ \bit -> (arr `M.unsafeWrite` writeIdx (7 - bit)) ((val `unsafeShiftR` bit) .&. 1)
 
     when (lineRest /= 0)
@@ -259,7 +260,7 @@ twoBitsUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData 
 
     forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line `M.unsafeRead` (pixelIndex  + beginIdx)
-        let writeIdx n = lineIndex + (pixelIndex * 4 + n) * strideWidth + beginLeft 
+        let writeIdx n = lineIndex + (pixelIndex * 4 + n) * strideWidth + beginLeft
         (arr `M.unsafeWrite` writeIdx 0) $ (val `unsafeShiftR` 6) .&. 0x3
         (arr `M.unsafeWrite` writeIdx 1) $ (val `unsafeShiftR` 4) .&. 0x3
         (arr `M.unsafeWrite` writeIdx 2) $ (val `unsafeShiftR` 2) .&. 0x3
@@ -283,13 +284,13 @@ halfByteUnpacker _ (MutableImage{ mutableImageWidth = imgWidth, mutableImageData
         (pixelToRead, lineRest) = (lineWidth + subPadd) `divMod` 2
     forM_ [0 .. pixelToRead - 1] $ \pixelIndex -> do
         val <- line `M.unsafeRead` (pixelIndex  + beginIdx)
-        let writeIdx n = lineIndex + (pixelIndex * 2 + n) * strideWidth + beginLeft 
+        let writeIdx n = lineIndex + (pixelIndex * 2 + n) * strideWidth + beginLeft
         (arr `M.unsafeWrite` writeIdx 0) $ (val `unsafeShiftR` 4) .&. 0xF
         (arr `M.unsafeWrite` writeIdx 1) $ val .&. 0xF
-    
+
     when (lineRest /= 0)
          (do val <- line `M.unsafeRead` endLine
-             let writeIdx = lineIndex + (pixelToRead * 2) * strideWidth + beginLeft 
+             let writeIdx = lineIndex + (pixelToRead * 2) * strideWidth + beginLeft
              (arr `M.unsafeWrite` writeIdx) $ (val `unsafeShiftR` 4) .&. 0xF)
 
 shortUnpacker :: Int -> MutableImage s Word16 -> StrideInfo -> BeginOffset -> LineUnpacker s
@@ -300,7 +301,7 @@ shortUnpacker sampleCount (MutableImage{ mutableImageWidth = imgWidth, mutableIm
         lineIndex = realTop * imgWidth
         pixelToRead = min (imgWidth - 1) $ (maxIdx - beginIdx) `div` (sampleCount * 2)
     forM_ [0 .. pixelToRead] $ \pixelIndex -> do
-        let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft 
+        let destPixelIndex = lineIndex + pixelIndex * strideWidth + beginLeft
             destSampleIndex = destPixelIndex * sampleCount
             srcPixelIndex = pixelIndex * sampleCount * 2 + beginIdx
         forM_ [0 .. sampleCount - 1] $ \sample -> do
@@ -344,7 +345,7 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker str =
                           , adam7StartingCol  = startCols
                           , adam7ColIncrement = colIncrement } = adam7MatrixInfo
 
-          subImages = 
+          subImages =
               [pngFiltering (unpacker (incrW, incrH) (beginW, beginH)) strideInfo (byteWidth, passHeight) str
                             | (beginW, incrW, beginH, incrH) <- zip4 startCols colIncrement startRows rowIncrement
                             , let passWidth = sizer imgWidth beginW incrW
@@ -363,7 +364,7 @@ adam7Unpack depth sampleCount (imgWidth, imgHeight) unpacker str =
 deinterlacer :: PngIHdr -> B.ByteString -> ST s (Either (V.Vector Word8) (V.Vector Word16))
 deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
                       , interlaceMethod = method, bitDepth = depth  }) str = do
-    let compCount = sampleCountOfImageType imgKind 
+    let compCount = sampleCountOfImageType imgKind
         arraySize = fromIntegral $ w * h * compCount
         deinterlaceFunction = case method of
             PngNoInterlace -> scanLineInterleaving
@@ -373,7 +374,7 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
       then do
         imgArray <- M.new arraySize
         let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
-        deinterlaceFunction iBitDepth 
+        deinterlaceFunction iBitDepth
                             (fromIntegral compCount)
                             (fromIntegral w, fromIntegral h)
                             (scanlineUnpacker8 iBitDepth (fromIntegral compCount)
@@ -384,7 +385,7 @@ deinterlacer (PngIHdr { width = w, height = h, colourType  = imgKind
       else do
         imgArray <- M.new arraySize
         let mutableImage = MutableImage (fromIntegral w) (fromIntegral h) imgArray
-        deinterlaceFunction iBitDepth 
+        deinterlaceFunction iBitDepth
                             (fromIntegral compCount)
                             (fromIntegral w, fromIntegral h)
                             (shortUnpacker (fromIntegral compCount) mutableImage)
@@ -411,9 +412,9 @@ paletteRGB2 = generateGreyscalePalette 2
 paletteRGB4 = generateGreyscalePalette 4
 
 addTransparencyToPalette :: PngPalette -> Lb.ByteString -> Palette' PixelRGBA8
-addTransparencyToPalette pal transpBuffer = 
+addTransparencyToPalette pal transpBuffer =
   Palette' (_paletteSize pal) . imageData . pixelMapXY addOpacity $ palettedAsImage pal
-  where 
+  where
     maxi = fromIntegral $ Lb.length transpBuffer
     addOpacity ix _ (PixelRGB8 r g b) | ix < maxi =
       PixelRGBA8 r g b $ Lb.index transpBuffer (fromIntegral ix)
@@ -521,7 +522,7 @@ decodePngWithPaletteAndMetadata byte =  do
   else
     let imgData = Z.decompress compressedImageData
         parseableData = B.concat $ Lb.toChunks imgData
-        palette = do 
+        palette = do
           p <- find (\c -> pLTESignature == chunkType c) $ chunks rawImg
           case parsePalette p of
             Left _ -> Nothing
@@ -531,4 +532,3 @@ decodePngWithPaletteAndMetadata byte =  do
         unparse ihdr palette transparencyColor (colourType ihdr) parseableData
 
 {-# ANN module "HLint: ignore Reduce duplication" #-}
-

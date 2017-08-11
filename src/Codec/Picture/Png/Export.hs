@@ -11,6 +11,7 @@ module Codec.Picture.Png.Export( PngSavable( .. )
                                , writeDynamicPng
                                , encodePalettedPng
                                , encodePalettedPngWithMetadata
+                               , unsafeEncodePalettedPng
                                ) where
 #if !MIN_VERSION_base(4,8,0)
 import Data.Monoid( mempty )
@@ -55,7 +56,7 @@ class PngSavable a where
     --  * 'Codec.Picture.Metadata.Source'
     --  * 'Codec.Picture.Metadata.Warning'
     --  * 'Codec.Picture.Metadata.Unknown' using the key present in the constructor.
-    -- 
+    --
     -- the followings metadata will bes tored in the `gAMA` chunk.
     --
     --  * 'Codec.Picture.Metadata.Gamma'
@@ -63,7 +64,7 @@ class PngSavable a where
     -- The followings metadata will be stored in a `pHYs` chunk
     --
     --  * 'Codec.Picture.Metadata.DpiX'
-    --  * 'Codec.Picture.Metadata.DpiY' 
+    --  * 'Codec.Picture.Metadata.DpiY'
     encodePngWithMetadata :: Metadatas -> Image a -> Lb.ByteString
 
 preparePngHeader :: Image a -> PngImageType -> Word8 -> PngIHdr
@@ -92,7 +93,7 @@ genericEncode16BitsPng :: forall px. (Pixel px, PixelBaseComponent px ~ Word16)
 genericEncode16BitsPng imgKind metas
                  image@(Image { imageWidth = w, imageHeight = h, imageData = arr }) =
   encode PngRawImage { header = hdr
-                     , chunks = encodeMetadatas metas 
+                     , chunks = encodeMetadatas metas
                               <> [ prepareIDatChunk imgEncodedData
                                  , endChunk
                                  ]
@@ -196,6 +197,12 @@ encodePalettedPngWithMetadata metas pal img
       where w = imageWidth pal
             h = imageHeight pal
             isTooBig v = fromIntegral v >= w
+
+-- | Equivalent to `encodePalettedPng`, but does not make any sanity checks on the input.
+-- Use this only when you know your `Palette` is complete, i.e. it has a color for
+-- every value of `Word8`.
+unsafeEncodePalettedPng :: Palette -> Image Pixel8 -> Lb.ByteString
+unsafeEncodePalettedPng pal img = genericEncodePng (Just pal) PngIndexedColor mempty img
 
 -- | Encode a dynamic image in PNG if possible, supported images are:
 --
